@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Star Catcher — built by an AI agent from one prompt</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0d0b1e; height: 100%; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="game" width="1080" height="1920"></canvas>
+<script>
+// Star Catcher — a tiny browser game built from ONE prompt:
+// "Build me a tiny browser game: catch falling stars with a basket, 30 seconds, score counter."
+// Move with mouse / touch. ?autoplay=1 lets the basket play itself (demo mode).
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const W = 1080, H = 1920;
+const DURATION = 30; // seconds
+
+// Seeded RNG so every run plays the same game.
+let seed = 20261122;
+function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+
+const params = new URLSearchParams(location.search);
+const AUTOPLAY = params.get('autoplay') === '1';
+const FRAME_AT = params.get('frame') !== null ? parseFloat(params.get('frame')) : null;
+
+let basketX = W / 2;
+const BASKET_Y = H - 260;
+let stars = [];
+let score = 0;
+let caught = 0;
+let startTime = null;
+let elapsed = 0;
+let lastTs = null;
+let over = false;
+
+function spawnStar(y) {
+  return { x: 90 + rnd() * (W - 180), y: y !== undefined ? y : -60 - rnd() * 300,
+           v: 420 + rnd() * 260, r: 26 + rnd() * 14, rot: rnd() * Math.PI, vr: (rnd() - 0.5) * 2 };
+}
+for (let i = 0; i < 7; i++) stars.push(spawnStar(-rnd() * 1600));
+
+function nearestStar() {
+  let best = null;
+  for (const s of stars) { if (!best || s.y > best.y) best = s; }
+  return best;
+}
+
+function drawStar(x, y, r, rot) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.fillStyle = '#ffd94d';
+  ctx.strokeStyle = '#ff9d00';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    ctx[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function step(dt) {
+  if (over) return;
+  elapsed += dt;
+  if (elapsed >= DURATION) { over = true; elapsed = DURATION; }
+  if (AUTOPLAY) {
+    const t = nearestStar();
+    if (t) basketX += (t.x - basketX) * Math.min(1, dt * 6);
+  }
+  for (const s of stars) {
+    s.y += s.v * dt;
+    s.rot += s.vr * dt;
+    if (s.y - s.r > BASKET_Y + 40 && Math.abs(s.x - basketX) < 150) {
+      score += 10; caught++;
+      Object.assign(s, spawnStar());
+    } else if (s.y > H + 80) {
+      Object.assign(s, spawnStar());
+    }
+  }
+}
+
+function draw() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#141033');
+  g.addColorStop(0.6, '#1d1450');
+  g.addColorStop(1, '#0d0b1e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  for (let i = 0; i < 60; i++) {
+    const bx = (i * 173) % W, by = (i * 311) % 1500;
+    ctx.globalAlpha = 0.15 + ((i * 37) % 100) / 200;
+    ctx.fillRect(bx, by, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+
+  // Title + score + timer.
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 84px sans-serif';
+  ctx.fillText('STAR CATCHER', W / 2, 150);
+  ctx.font = 'bold 120px sans-serif';
+  ctx.fillStyle = '#ffd94d';
+  ctx.fillText('SCORE ' + score, W / 2, 500);
+  const left = Math.max(0, DURATION - elapsed);
+  ctx.font = 'bold 64px sans-serif';
+  ctx.fillStyle = left <= 5 ? '#ff5d7a' : '#ffffff';
+  ctx.fillText('⏱ ' + left.toFixed(1) + 's', W / 2, 600);
+
+  if (!over) {
+    for (const s of stars) drawStar(s.x, s.y, s.r, s.rot);
+  } else {
+    ctx.fillStyle = 'rgba(13,11,30,0.72)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffd94d';
+    ctx.font = 'bold 130px sans-serif';
+    ctx.fillText('TIME UP!', W / 2, 800);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 110px sans-serif';
+    ctx.fillText('SCORE ' + score, W / 2, 980);
+    ctx.font = 'bold 56px sans-serif';
+    ctx.fillStyle = '#c9c3ff';
+    ctx.fillText(caught + ' stars caught', W / 2, 1100);
+    ctx.fillStyle = '#ff2e88';
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - 320, 1250, 640, 130, 65);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 58px sans-serif';
+    ctx.fillText('PLAY AGAIN', W / 2, 1338);
+  }
+
+  // Basket.
+  ctx.fillStyle = '#ff2e88';
+  ctx.beginPath();
+  ctx.roundRect(basketX - 150, BASKET_Y, 300, 90, 20);
+  ctx.fill();
+  ctx.fillStyle = '#c41c83';
+  ctx.fillRect(basketX - 150, BASKET_Y, 300, 22);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 44px sans-serif';
+  ctx.fillText('CATCH!', basketX, BASKET_Y + 62);
+
+  // Ground line.
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(0, H - 120, W, 4);
+}
+
+function frame(ts) {
+  if (startTime === null) { startTime = ts; lastTs = ts; }
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  step(dt);
+  draw();
+  if (!over) requestAnimationFrame(frame);
+}
+
+cv.addEventListener('pointermove', (e) => {
+  const r = cv.getBoundingClientRect();
+  basketX = (e.clientX - r.left) / r.width * W;
+});
+
+// ?frame=T renders one exact moment of the game (for video frames): simulate
+// deterministically from t=0 to T at 60 steps/second, then draw once.
+if (FRAME_AT !== null) {
+  while (elapsed < FRAME_AT && !over) step(1 / 60);
+  draw();
+} else {
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
