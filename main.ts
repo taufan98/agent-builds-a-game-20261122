@@ -11,16 +11,33 @@
 // Outside the grader's container, MAKEFUN_BOT_DIR and MAKEFUN_OUTPUT_DIR stand in for /bot and /output:
 //   mkdir -p out && MAKEFUN_BOT_DIR=. MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BOT_DIR = process.env.MAKEFUN_BOT_DIR ?? '/bot';
 const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+const postPath = join(BOT_DIR, 'POST.json');
+
+// The gate refuses a placeholder address, so check the post URL here first:
+// it must be a real X status link, https://x.com/<handle>/status/<id>.
+let postUrl: unknown;
+try {
+  postUrl = (JSON.parse(readFileSync(postPath, 'utf8')) as { url?: unknown }).url;
+} catch (err) {
+  console.error(`POST.json could not be read from ${BOT_DIR}: ${(err as Error).message}`);
+  process.exit(1);
+}
+if (typeof postUrl !== 'string' || !/^https:\/\/x\.com\/[^/]+\/status\/\d+$/.test(postUrl)) {
+  console.error('POST.json does not name a real X post URL (expected https://x.com/<handle>/status/<id>).');
+  process.exit(1);
+}
+
 mkdirSync(OUTPUT_DIR, { recursive: true });
 try {
-  copyFileSync(join(BOT_DIR, 'POST.json'), join(OUTPUT_DIR, 'POST.json'));
+  copyFileSync(postPath, join(OUTPUT_DIR, 'POST.json'));
 } catch (err) {
   console.error(`POST.json could not be copied from ${BOT_DIR}: ${(err as Error).message}`);
   process.exit(1);
 }
+console.log(`POST.json OK: ${postUrl}`);
